@@ -1,0 +1,7 @@
+{
+    "symbol": "EURAUD",
+    "timestamp": "2024-12-05 16:40:14",
+    "input_size": 12,
+    "hidden_size": 128,
+    "num_layers": 2
+}

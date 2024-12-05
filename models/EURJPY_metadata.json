@@ -1,0 +1,7 @@
+{
+    "symbol": "EURJPY",
+    "timestamp": "2024-12-05 16:40:01",
+    "input_size": 12,
+    "hidden_size": 128,
+    "num_layers": 2
+}

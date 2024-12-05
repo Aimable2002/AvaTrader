@@ -1,0 +1,7 @@
+{
+    "symbol": "GBPJPY",
+    "timestamp": "2024-12-05 16:39:45",
+    "input_size": 12,
+    "hidden_size": 128,
+    "num_layers": 2
+}

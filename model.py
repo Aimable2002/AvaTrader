@@ -11,13 +11,13 @@ class ForexLSTM(nn.Module):
             hidden_size=hidden_size,     # Size of LSTM hidden state
             num_layers=num_layers,       # Number of LSTM layers
             batch_first=True,            # Batch dimension first
-            dropout=0.3                  # Dropout for regularization
+            dropout=0.2                  # Dropout for regularization
         )
         # First linear layer
-        self.linear1 = nn.Linear(hidden_size, 64)
+        self.linear1 = nn.Linear(hidden_size, 32)
         self.relu = nn.ReLU()  # Activation function
-        self.dropout = nn.Dropout(0.2)  # Dropout layer
-        self.linear2 = nn.Linear(64, 1)  # Output layer
+        self.dropout = nn.Dropout(0.1)  # Dropout layer
+        self.linear2 = nn.Linear(32, 1)  # Output layer
         self.batch_norm = nn.BatchNorm1d(hidden_size)  # Batch normalization
     
     def forward(self, x):

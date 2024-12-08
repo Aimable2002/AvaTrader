@@ -13,6 +13,7 @@ import os
 import torch
 import traceback
 import time 
+from plNews import get_news_sentiment
 
 
 class TradingBot:
@@ -84,7 +85,9 @@ class TradingBot:
             for tk in self.ticker:
                 print(f"Fetching data for {tk}...")
                 # Get historical data from MT5
-                rates = mt5.copy_rates_from(tk, self.interval, self.from_date, self.no_of_bars)
+                # rates = mt5.copy_rates_from(tk, self.interval, self.from_date, self.no_of_bars)
+
+                rates = mt5.copy_rates_from_pos(tk, self.interval, 0, self.no_of_bars)
                 
                 if rates is not None and len(rates) > 0:
                     # Convert to DataFrame
@@ -94,6 +97,12 @@ class TradingBot:
                     df.name = tk
                     dfs[tk] = df
                     print(f"Retrieved {len(df)} rows for {tk}")
+
+                    print(f"Last data point for {tk}: {df.iloc[-1]}")
+
+                    last_rate = rates[-1]
+                    last_time = datetime.fromtimestamp(last_rate['time'])
+                    print(f"\nLast rate: {last_rate}, Converted date: {last_time}")
                 else:
                     print(f'No data found for {tk}')
                     
@@ -107,11 +116,13 @@ class TradingBot:
             print(f"\nData Summary:")
             print(f"Total rows: {len(combined_df)}")
             print(f"Columns per symbol: {len(combined_df.columns.levels[1])}")
+            print(f"Last data point: {combined_df.iloc[-1]}")
             
             return combined_df
             
         except Exception as e:
             print(f"Error getting price history: {e}")
+            traceback.print_exc()
             return None
         
     
@@ -123,6 +134,7 @@ class TradingBot:
         Sell signal when price is rising (expecting reversal down)
         """
         print("\nAnalyzing market conditions...")
+        print(f"\n df in check_probability: {df.iloc[-1]}")
         predictions = predict_next_prices(df, symbols=self.ticker)
 
         potential_trades = []
@@ -228,6 +240,8 @@ class TradingBot:
 
             symbol = position_details['symbol']
             signal = position_details['signal']
+            signal_stop = position_details['signal']
+            signal_limit = position_details['signal']
             trade_id = position_details['trade_id'] 
 
             print(f"Submitting order for {symbol} with signal {signal}")
@@ -236,30 +250,131 @@ class TradingBot:
             print(f"MT5 Time: {mt5_time}")
             if not mt5_time:
                 print(f"Failed to fetch server time for {symbol}")
-                return False  # Handle missing server time gracefully
+                return False  
             server_time = datetime.fromtimestamp(mt5_time, timezone.utc)
             print(f"Server Time above: {server_time}")
-            expiration = server_time + timedelta(minutes=2)
+            expiration = server_time + timedelta(minutes=120)
             print(f"Expiration Time above: {expiration}")
 
-            request = {
+            request1 = {
                 "action": mt5.TRADE_ACTION_DEAL,
                 "symbol": symbol,
                 "volume": position_details['size'],
-                "type": mt5.ORDER_TYPE_SELL if signal == "BUY" else mt5.ORDER_TYPE_BUY,
+                "type": mt5.ORDER_TYPE_BUY if signal == "BUY" else mt5.ORDER_TYPE_SELL,
                 "price": float(position_details['entry_price']),
                 "sl": float(position_details['stop_loss']),
                 "tp": float(position_details['take_profit']),
                 "deviation": self.deviation,
                 "magic": 234000,
                 "comment": f"LSTM {signal}",
-                # "type_time": mt5.ORDER_TIME_GTC,
+                "type_time": mt5.ORDER_TIME_GTC,
                 "type_time": mt5.ORDER_TIME_SPECIFIED,
                 "type_filling": mt5.ORDER_FILLING_FOK,
                 "expiration": int(expiration.timestamp())
             }
 
+            
+            point = mt5.symbol_info(symbol).point  
+            min_distance = 5 * point  
+
+            entry_distance = 1000 * point
+            sl_distance = 500 * point      # 50 pips from entry
+            tp_distance = 1000 * point  
+            digits = mt5.symbol_info(symbol).digits
+
+            if signal_stop == "BUY":
+                print(f"\n==== BUY STOP ====")
+                # entry_price = mt5.symbol_info_tick(symbol).ask + min_distance
+                # take_profit = entry_price + (30 * point)  
+                # stop_loss = entry_price - (10 * point) 
+                entry_price = round(mt5.symbol_info_tick(symbol).ask + entry_distance, digits)  
+                stop_loss = round(entry_price - sl_distance, digits)           # 50 pips above entry
+                take_profit = round(entry_price + tp_distance, digits)  
+            elif signal_stop == "SELL":
+                print(f"\n==== SELL STOP ====")
+                # entry_price = mt5.symbol_info_tick(symbol).bid - min_distance
+                # take_profit = entry_price - (30 * point)  
+                # stop_loss = entry_price + (10 * point) 
+                entry_price = round(mt5.symbol_info_tick(symbol).bid - entry_distance, digits) 
+                stop_loss = round(entry_price + sl_distance, digits)           # 50 pips below entry
+                take_profit = round(entry_price - tp_distance, digits) 
+
+            request2 = {
+                "action": mt5.TRADE_ACTION_PENDING,
+                "symbol": symbol,
+                "volume": position_details['size'],
+                "type": mt5.ORDER_TYPE_BUY_STOP if signal_stop == "BUY" else mt5.ORDER_TYPE_SELL_STOP,
+                "price": entry_price, 
+                "sl": stop_loss,
+                "tp": take_profit,
+                "deviation": self.deviation,
+                "magic": 234000,
+                "comment": f"LSTM {signal_stop}",
+                "type_time": mt5.ORDER_TIME_SPECIFIED,
+                "type_filling": mt5.ORDER_FILLING_FOK,
+                "expiration": int(expiration.timestamp())
+            }
+
+
+            symbol_info = mt5.symbol_info(symbol)
+            current_tick = mt5.symbol_info_tick(symbol)
+            point = symbol_info.point
+            digits = symbol_info.digits
+            stops_level = symbol_info.trade_stops_level
+            
+            print(f"\nSymbol Info:")
+            print(f"Point: {point}")
+            print(f"Digits: {digits}")
+            print(f"Stops Level: {stops_level}")
+            print(f"Current Ask: {current_tick.ask}")
+            print(f"Current Bid: {current_tick.bid}")
+
+            
+            min_distance = (stops_level + 10) * point
+
+            entry_distance = 1000 * point
+            sl_distance = 500 * point      # 50 pips from entry
+            tp_distance = 1000 * point  
+
+            if signal_limit == "BUY":
+                # For SELL signal (BUY_LIMIT)
+                print(f"\n==== BUY Limit ====")
+                entry_price = round(current_tick.ask - entry_distance, digits)  
+                stop_loss = round(entry_price - sl_distance, digits)           # 50 pips above entry
+                take_profit = round(entry_price + tp_distance, digits)         # 100 pips below entry
+                order_type = mt5.ORDER_TYPE_BUY_LIMIT
+            elif signal_limit == "SELL":
+                # For BUY signal (SELL_LIMIT)
+                print(f"\n==== SELL Limit ====")
+                entry_price = round(current_tick.bid + entry_distance, digits) 
+                stop_loss = round(entry_price + sl_distance, digits)           # 50 pips below entry
+                take_profit = round(entry_price - tp_distance, digits)         # 100 pips above entry
+                order_type = mt5.ORDER_TYPE_SELL_LIMIT
+
+            mt5_time = mt5.symbol_info_tick(symbol).time
+            server_time = datetime.fromtimestamp(mt5_time, timezone.utc)
+            expiration = server_time + timedelta(minutes=120)
+
+
+            request = {
+                "action": mt5.TRADE_ACTION_PENDING,
+                "symbol": symbol,
+                "volume": position_details['size'],
+                "type": order_type,
+                "price": entry_price,
+                "sl": stop_loss,
+                "tp": take_profit,
+                "deviation": self.deviation,
+                "magic": 234000,
+                "comment": f"LSTM {signal_limit}",
+                "type_time": mt5.ORDER_TIME_SPECIFIED,
+                "type_filling": mt5.ORDER_FILLING_FOK,
+                "expiration": int(expiration.timestamp())
+            }
+
+
             print(f"Debug - Order request details:")
+
             for key, value in request.items():
                 if key == "expiration":
                     # Convert expiration timestamp back to datetime for logging
@@ -268,38 +383,18 @@ class TradingBot:
                 else:
                     print(f"{key}: {value}")
 
-            # Submit the order
-            print(f"\n ++++++++ Submitting order for {symbol} with signal {signal} ++++++++")
-            while True:
+            probability, sentiment = get_news_sentiment()
 
-                if request['type'] == mt5.ORDER_TYPE_SELL:
-                    current_situation = mt5.symbol_info_tick(symbol)
-                    if current_situation is None:
-                        print(f"Failed to fetch current situation for {symbol}")
-                        return False
-                    elif current_situation.bid < request['price'] + 100.10:
-                        print(f'current_situation.bid: {current_situation.bid}')
-                        print(f'request["price"]: {request["price"]}')
-                        result = mt5.order_send(request)
-                        break
-                    else:
-                        print(f"Price is too high for {symbol}")
-                        return False
-                
-                elif request['type'] == mt5.ORDER_TYPE_BUY:
-                    current_situation = mt5.symbol_info_tick(symbol)
-                    if current_situation is None:
-                        print(f"Failed to fetch current situation for {symbol}")
-                        return False
-                    elif current_situation.ask > request['price'] - 100.10:
-                        print(f'current_situation.ask: {current_situation.ask}')
-                        print(f'request["price"]: {request["price"]}')
-                        result = mt5.order_send(request)
-                        break
-                    else:
-                        print(f"Price is too low for {symbol}")
-                        return False
-                time.sleep(1)
+            print(f"News Sentiment: {sentiment}")
+            print(f"News Sentiment Confidence: {probability:.2%}")
+
+            if probability > 0.998 and sentiment == "positive": # sell
+                result = mt5.order_send(request2)
+            elif probability < 0.998 and sentiment == "negative": # buy
+                result = mt5.order_send(request1)
+            else:
+                result = mt5.order_send(request2)
+
             if result is None:
                 error = mt5.last_error()
                 print("\nOrder failed!")
@@ -334,6 +429,8 @@ class TradingBot:
                     'position_size': position_details['size'],
                     'status': 'open'
                 }
+
+                print(f"Trade Prediction: {trade_prediction}")
                 
                 # Save trade prediction
                 save_prediction_results(symbol, trade_prediction)
@@ -353,126 +450,57 @@ class TradingBot:
             print(f"Error submitting order: {str(e)}")
             traceback.print_exc()
             return False
+        
 
-    
-    # def monitor_trades_and_predictions(self):
-    #     """Monitor trades and update prediction outcomes"""
+    # def monitor_trades(self):
+    #     """Monitor trades and close them if they reach a profit of 20.10"""
     #     try:
-    #         # Get current positions
     #         positions = mt5.positions_get()
-
-    #         if positions:
-    #             for position in positions:
-    #                 # Check if position is from our scalping bot
-    #                 if position.magic == 234000:
-    #                     # Get position open time
-    #                     open_time = datetime.fromtimestamp(position.time)
-    #                     current_time = datetime.now()
-                        
-    #                     # If position is open more than 5 minutes, close it
-    #                     if (current_time - open_time).total_seconds() > 300:  # 300 seconds = 5 minutes
-    #                         close_request = {
-    #                             "action": mt5.TRADE_ACTION_CLOSE,
-    #                             "position": position.ticket,
-    #                             "magic": 234000,
-    #                             "comment": "Scalping time limit reached"
-    #                         }
-                            
-    #                         result = mt5.order_send(close_request)
-    #                         if result.retcode != mt5.TRADE_RETCODE_DONE:
-    #                             print(f"Error closing expired position: {result.comment}")
-    #                         else:
-    #                             print(f"Closed expired scalping position: {position.ticket}")
             
-            
-    #         # Get recent trade history
-    #         from_date = datetime.now() - timedelta(days=1)
-    #         history_deals = mt5.history_deals_get(from_date, datetime.now())
-            
-    #         if history_deals is not None:
-    #             for deal in history_deals:
-    #                 if deal.entry == mt5.DEAL_ENTRY_OUT:  # Position closed
-    #                     # Update prediction outcomes
-    #                     update_prediction_outcomes(deal.symbol)
-    #                     # Analyze updated accuracy
-    #                     analyze_prediction_accuracy(deal.symbol)
-
-    #             # Calculate overall performance metrics
-    #             total_profit = sum(deal.profit for deal in history_deals)
-    #             win_count = sum(1 for deal in history_deals if deal.profit > 0)
-    #             total_trades = len(history_deals)
+    #         if positions is None:
+    #             return
                 
-    #             if total_trades > 0:
-    #                 win_rate = (win_count / total_trades) * 100
-    #                 print(f"\nOverall Performance:")
-    #                 print(f"Total Trades: {total_trades}")
-    #                 print(f"Win Rate: {win_rate:.2f}%")
-    #                 print(f"Total Profit: {total_profit:.2f}")
+    #         for position in positions:
+    #             if position.magic == 234000:  # Check if it's our bot's trade
+    #                 # Calculate the current profit
+    #                 current_profit = position.profit
                     
-    #                 # If performance is poor, trigger model retraining
-    #                 if win_rate < 50 and total_trades >= 20:
-    #                     print("Poor overall performance detected, scheduling model retraining...")
-    #                     for symbol in self.ticker:
-    #                         analyze_prediction_accuracy(symbol)
-            
-    #         # Update outcomes for all symbols being traded
-    #         for symbol in self.ticker:
-    #             update_prediction_outcomes(symbol)
-                
+    #                 print(f"\nPosition {position.ticket} profit check:")
+    #                 print(f"Current Profit: {current_profit}")
+                    
+    #                 # Check if the profit is greater than or equal to 20.10
+    #                 if current_profit >= 10.10:
+    #                     print(f"Closing position {position.ticket} - profit target reached")
+                        
+    #                     # Prepare close request
+    #                     close_request = {
+    #                         "action": mt5.TRADE_ACTION_DEAL,
+    #                         "position": position.ticket,
+    #                         "symbol": position.symbol,
+    #                         "volume": position.volume,
+    #                         "type": mt5.ORDER_TYPE_BUY if position.type == mt5.ORDER_TYPE_SELL else mt5.ORDER_TYPE_SELL,
+    #                         "price": mt5.symbol_info_tick(position.symbol).ask if position.type == mt5.ORDER_TYPE_SELL else mt5.symbol_info_tick(position.symbol).bid,
+    #                         "deviation": 20,
+    #                         "magic": 234000,
+    #                         "comment": "Profit target reached",
+    #                         "type_time": mt5.ORDER_TIME_GTC,
+    #                         "type_filling": mt5.ORDER_FILLING_IOC,
+    #                     }
+                        
+    #                     # Send close request
+    #                     result = mt5.order_send(close_request)
+                        
+    #                     if result.retcode != mt5.TRADE_RETCODE_DONE:
+    #                         print(f"Error closing position: {result.comment}")
+    #                     else:
+    #                         print(f"Position {position.ticket} closed successfully")
+                            
+    #                         # Optionally, send a new order after closing
+    #                         # self.submit_order(self.calculate_position(position.symbol, self.predictions))
+                            
     #     except Exception as e:
-    #         print(f"Error monitoring trades and predictions: {e}")
-
-
-
-    def monitor_trades(self):
-        """Monitor trades and close them if they reach a profit of 20.10"""
-        try:
-            positions = mt5.positions_get()
-            
-            if positions is None:
-                return
-                
-            for position in positions:
-                if position.magic == 234000:  # Check if it's our bot's trade
-                    # Calculate the current profit
-                    current_profit = position.profit
-                    
-                    print(f"\nPosition {position.ticket} profit check:")
-                    print(f"Current Profit: {current_profit}")
-                    
-                    # Check if the profit is greater than or equal to 20.10
-                    if current_profit >= 10.10:
-                        print(f"Closing position {position.ticket} - profit target reached")
-                        
-                        # Prepare close request
-                        close_request = {
-                            "action": mt5.TRADE_ACTION_DEAL,
-                            "position": position.ticket,
-                            "symbol": position.symbol,
-                            "volume": position.volume,
-                            "type": mt5.ORDER_TYPE_BUY if position.type == mt5.ORDER_TYPE_SELL else mt5.ORDER_TYPE_SELL,
-                            "price": mt5.symbol_info_tick(position.symbol).ask if position.type == mt5.ORDER_TYPE_SELL else mt5.symbol_info_tick(position.symbol).bid,
-                            "deviation": 20,
-                            "magic": 234000,
-                            "comment": "Profit target reached",
-                            "type_time": mt5.ORDER_TIME_GTC,
-                            "type_filling": mt5.ORDER_FILLING_IOC,
-                        }
-                        
-                        # Send close request
-                        result = mt5.order_send(close_request)
-                        
-                        if result.retcode != mt5.TRADE_RETCODE_DONE:
-                            print(f"Error closing position: {result.comment}")
-                        else:
-                            print(f"Position {position.ticket} closed successfully")
-                            
-                            # Optionally, send a new order after closing
-                            # self.submit_order(self.calculate_position(position.symbol, self.predictions))
-                            
-        except Exception as e:
-            print(f"Error in monitor_trades: {e}")
-            traceback.print_exc()
+    #         print(f"Error in monitor_trades: {e}")
+    #         traceback.print_exc()
 
 
 
@@ -520,7 +548,7 @@ class TradingBot:
         finally:
             # Always shut down MT5 connection
             # mt5.shutdown()
-            print("\nMT5 connection closed")
+            print("\nMT5 End Run")
 
 if __name__ == '__main__':
     # Create and run the trading bot
@@ -541,3 +569,48 @@ if __name__ == '__main__':
         print(f"Error: {e}")
     finally:
         mt5.shutdown()
+        print("\nMT5 connection closed")
+
+
+
+
+
+
+
+
+
+
+
+# # Adjust entry price to respect minimum distance (20 points)
+#             point = mt5.symbol_info(symbol).point  # Get point value
+#             min_distance = 20 * point  # Minimum distance in price
+
+#             if signal == "BUY":
+#                 # For SELL_LIMIT, entry price must be ABOVE current Bid
+#                 entry_price = mt5.symbol_info_tick(symbol).bid + min_distance
+#                 take_profit = entry_price - (30 * point)  # TP below entry price
+#                 stop_loss = entry_price + (10 * point)  # SL above entry price
+#             else:
+#                 # For BUY_LIMIT, entry price must be BELOW current Ask
+#                 entry_price = mt5.symbol_info_tick(symbol).ask - min_distance
+#                 take_profit = entry_price + (30 * point)  # TP above entry price
+#                 stop_loss = entry_price - (10 * point)  # SL below entry price
+
+
+#             request = {
+#                 "action": mt5.TRADE_ACTION_PENDING,
+#                 "symbol": symbol,
+#                 "volume": position_details['size'],
+#                 "type": mt5.ORDER_TYPE_SELL_LIMIT if signal == "BUY" else mt5.ORDER_TYPE_BUY_LIMIT,
+#                 "price": entry_price, 
+#                 "sl": float(position_details['stop_loss']),
+#                 "tp": float(position_details['take_profit']),
+#                 "deviation": self.deviation,
+#                 "magic": 234000,
+#                 "comment": f"LSTM {signal}",
+#                 "type_time": mt5.ORDER_TIME_SPECIFIED,
+#                 "type_filling": mt5.ORDER_FILLING_FOK,
+#                 "expiration": int(expiration.timestamp())
+#             }
+
+

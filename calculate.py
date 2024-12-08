@@ -101,7 +101,7 @@ class Calculate:
             point = symbol_info.point
                 
             
-            if signal != "BUY":
+            if signal == "BUY":
                 entry_price = mt5.symbol_info_tick(symbol).bid
                 print(f'bid: {entry_price}')
                 stop_loss = entry_price * 0.997  # 0.3% stop loss 0.997 
@@ -189,6 +189,7 @@ class Calculate:
                 'spread_points': current_spread
             } 
 
+            print(f"Trade Prediction: {trade_prediction}")
             save_prediction_results(symbol, trade_prediction)
             update_prediction_outcomes(symbol)
 

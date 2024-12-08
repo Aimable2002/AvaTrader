@@ -21,6 +21,7 @@ class RetrainBot:
     def prepare_training_data(self, training_data):
         """Convert historical trades to training data"""
         try:
+            print(f"\n In prepare_training_data: {training_data}")
             X = []  # Features
             y = []  # Labels
             sequence_length = 10  # Number of time steps to look back

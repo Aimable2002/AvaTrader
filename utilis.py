@@ -65,6 +65,7 @@ def save_prediction_results(symbol, prediction_data):
         prediction_data: Dictionary containing complete prediction and trade details
     """
     try:
+        print(f"\n In save_prediction_results: {prediction_data} \n with symbol: {symbol}")
         #symbol = prediction_data['symbol']
         
         # Create predictions directory if it doesn't exist

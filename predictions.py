@@ -100,8 +100,8 @@ def prepare_forex_data(df, symbol, sequence_length=10):
 
 
 # ... (after the train_model function)
-
-def predict_next_prices(df, symbols=['EURUSD', 'EURCAD']):
+ticker = ["EURUSD", "EURGBP", "EURCAD","GBPJPY", "EURJPY", "EURAUD", "EURCHF", "AUDUSD", "GBPUSD", "USDCHF", "USDJPY"]
+def predict_next_prices(df, symbols=ticker):
     """
     Make predictions for multiple forex symbols
     Args:
@@ -111,6 +111,7 @@ def predict_next_prices(df, symbols=['EURUSD', 'EURCAD']):
         dict: Predictions for each symbol
     """
     predictions = {}
+    print(f"\n df in predict_next_prices: {df.iloc[-1]}")
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
     for symbol in symbols:
@@ -126,14 +127,24 @@ def predict_next_prices(df, symbols=['EURUSD', 'EURCAD']):
             
             # Load and combine with historical training data
             historical_data = load_and_combine_training_data(symbol)
+            print(f"\n df in predict_next_prices historical data: {historical_data.iloc[-1]}")
             if historical_data is not None:
                 # df[symbol] = pd.concat([historical_data, df[symbol]]).drop_duplicates()
                 # print(f"Combined with historical training data for {symbol}")
 
                 # Ensure both DataFrames have the same columns
+                print(f"\n df in predict_next_prices current data: {current_data.iloc[-1]}")
                 combined_data = pd.concat([historical_data, current_data], axis=0)
-                combined_data = combined_data.drop_duplicates().reset_index(drop=True)
-                df[symbol] = combined_data
+                # combined_data = combined_data.drop_duplicates().reset_index(drop=True)
+                combined_data = combined_data.drop_duplicates(subset=['time'], keep='last').reset_index(drop=True)
+                combined_data = combined_data.astype(df[symbol].dtypes.to_dict())
+                # print(f"Combined data for {symbol}: {combined_data.iloc[-1]}") 
+                print(f"Combined data for {symbol} (last 5 rows):\n{combined_data.tail()}")
+                print(f'\n df symbol: {df[symbol].iloc[-1]}')
+                # df[symbol] = combined_data
+                # df.loc[:, symbol] = combined_data
+                # print(f"\n df in predict_next_prices combined data: {df[symbol].iloc[-1]}")
+                print(f"Updated df for {symbol} (last 5 rows):\n{df[symbol].tail()}")
                 print(f"Combined with historical training data for {symbol}")
                 
             # Prepare data with 10-day sequences
@@ -181,6 +192,7 @@ def predict_next_prices(df, symbols=['EURUSD', 'EURCAD']):
                 predicted_price = scaler.inverse_transform(dummy)[0, 3]
                 
                 current_price = df[symbol]['close'].iloc[-1]
+                print(f"\n Print the last df row: {df[symbol].iloc[-1]}")
                 predictions[symbol] = {
                     'current_price': current_price,
                     'predicted_price': predicted_price,
@@ -223,7 +235,7 @@ def save_training_data(df, symbol, max_records=10000):
         timestamp = datetime.now().strftime('%Y%m%d')
         filename = f'training_data/{symbol}_{timestamp}.csv'
         df.to_csv(filename)
-        
+        print(f"\n df in save_training_data: {df.iloc[-1]}")
         print(f"Training data saved to {filename}")
         
     except Exception as e:
@@ -294,26 +306,29 @@ def train_model(model, train_loader, val_loader, symbol, epochs=100, learning_ra
     
     model = model.to(device)
     criterion = nn.MSELoss()  # Mean Squared Error loss
-    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate, weight_decay=0.01)
     
     # Correct import for ReduceLROnPlateau
     scheduler = ReduceLROnPlateau(
         optimizer, 
         mode='min', 
-        factor=0.5, 
-        patience=5,
+        factor=0.75, 
+        patience=10,
+        min_lr=0.0001
         # verbose=True
     )
     
     best_val_loss = float('inf')
     best_model_state = None
-    patience = 15  # Early stopping patience
+    patience = 20  # Early stopping patience
     patience_counter = 0
+    min_delta = 0.0001 
     
     for epoch in range(epochs):
         # Training phase
         model.train()
         total_train_loss = 0
+        batch_count = 0
         for batch_X, batch_y in train_loader:
             batch_X = batch_X.to(device)
             batch_y = batch_y.to(device).squeeze(-1)
@@ -329,10 +344,18 @@ def train_model(model, train_loader, val_loader, symbol, epochs=100, learning_ra
             optimizer.step()
             
             total_train_loss += loss.item()
+            batch_count += 1
+
+            if batch_count % 10 == 0:
+                print(f"Epoch {epoch+1}, Batch {batch_count}: Loss = {loss.item():.6f}")
+        
         
         # Validation phase
         model.eval()
         total_val_loss = 0
+        val_predictions = []
+        val_targets = []
+
         with torch.no_grad():
             for batch_X, batch_y in val_loader:
                 batch_X = batch_X.to(device)
@@ -341,10 +364,23 @@ def train_model(model, train_loader, val_loader, symbol, epochs=100, learning_ra
                 outputs = model(batch_X)
                 loss = criterion(outputs, batch_y)
                 total_val_loss += loss.item()
+
+                val_predictions.extend(outputs.cpu().numpy())
+                val_targets.extend(batch_y.cpu().numpy())
         
         # Calculate average losses
         avg_train_loss = total_train_loss / len(train_loader)
         avg_val_loss = total_val_loss / len(val_loader)
+
+
+        val_accuracy = np.mean(np.sign(np.array(val_predictions)) == np.sign(np.array(val_targets)))
+        
+        print(f'\nEpoch [{epoch+1}/{epochs}]')
+        print(f'Train Loss: {avg_train_loss:.6f}')
+        print(f'Val Loss: {avg_val_loss:.6f}')
+        print(f'Val Accuracy: {val_accuracy:.2f}')
+        print(f'Learning Rate: {optimizer.param_groups[0]["lr"]:.6f}')
+        
         
         # Learning rate scheduling
         scheduler.step(avg_val_loss)
@@ -359,6 +395,7 @@ def train_model(model, train_loader, val_loader, symbol, epochs=100, learning_ra
         
         if patience_counter >= patience:
             print(f'Early stopping triggered at epoch {epoch + 1}')
+            print(f'Best validation loss: {best_val_loss:.6f}')
             break
         
         # Print progress

@@ -1,7 +1,0 @@
-{
-    "symbol": "AUDUSD",
-    "timestamp": "2024-12-08 20:02:31",
-    "input_size": 12,
-    "hidden_size": 128,
-    "num_layers": 2
-}

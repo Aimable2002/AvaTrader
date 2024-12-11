@@ -9,10 +9,10 @@ server = os.getenv('MT5_SERVER')
 path = os.getenv('MT5_PATH')
 
 # Trading parameters
-ticker = ["EURJPY"]
-#ticker = ["EURUSD", "EURGBP", "EURCAD","GBPJPY", "EURJPY", "EURAUD", "EURCHF", "AUDUSD", "GBPUSD", "USDCHF", "USDJPY"]
+ticker = ["EURJPY", "EURGBP", "AUDUSD", "USDCHF","GBPJPY"]  
+# ticker = ["EURUSD", "EURGBP", "EURCAD","GBPJPY", "EURJPY", "EURAUD", "EURCHF", "AUDUSD", "GBPUSD", "USDCHF", "USDJPY"]
 interval = mt5.TIMEFRAME_M5
-from_date = datetime.now()
+from_date = datetime.now() 
 no_of_bars = 1000
 qty = 0.01
 deviation = 2

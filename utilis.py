@@ -9,6 +9,7 @@ import torch
 from learningMonitor import LearningMonitor
 import numpy as np
 from update import load_model
+import traceback
 
 
 learning_monitor = LearningMonitor()
@@ -65,7 +66,7 @@ def save_prediction_results(symbol, prediction_data):
         prediction_data: Dictionary containing complete prediction and trade details
     """
     try:
-        print(f"\n In save_prediction_results: {prediction_data} \n with symbol: {symbol}")
+        #print(f"\n In save_prediction_results: {prediction_data} \n with symbol: {symbol}")
         #symbol = prediction_data['symbol']
         
         # Create predictions directory if it doesn't exist
@@ -85,8 +86,8 @@ def save_prediction_results(symbol, prediction_data):
             'symbol': symbol,
             'entry_time': prediction_data['entry_time'],
             'entry_price': float(prediction_data['entry_price']),
-            'current_price': float(prediction_data['current_price']),
-            'predicted_price': float(prediction_data['predicted_price']),
+            # 'current_price': float(prediction_data['current_price']),
+            # 'predicted_price': float(prediction_data['predicted_price']),
             'predicted_direction': prediction_data['predicted_direction'],
             'predicted_change': float(prediction_data['predicted_change']),
             'stop_loss': float(prediction_data['stop_loss']),
@@ -94,9 +95,9 @@ def save_prediction_results(symbol, prediction_data):
             'position_size': float(prediction_data['position_size']),
             'status': prediction_data['status'],
             'mt5_ticket': prediction_data['mt5_ticket'],
-            'movement': prediction_data['movement']
+            # 'movement': prediction_data['movement']
         }
-        
+        #print(f'prediction record in save_prediction_results: {prediction_data}')
         existing_predictions.append(prediction_record)
         
         # Keep only last 1000 predictions
@@ -117,53 +118,61 @@ def save_prediction_results(symbol, prediction_data):
 def update_prediction_outcomes(symbol):
     """Update outcomes for completed trades"""
     try:
+        print(f"\nUpdating prediction outcomes for {symbol}")
 
         filename = f'prediction_history/{symbol}_predictions.json'
         if not os.path.exists(filename):
+            print(f"No prediction history file found for {symbol}")
             return
             
         with open(filename, 'r') as f:
             predictions = json.load(f)
             
         # Get recent trade history
-        from_date = datetime.now() - timedelta(days=1)
-        history_deals = mt5.history_deals_get(from_date, datetime.now())
+        from_date = datetime.now() - timedelta(days=2)
+        history_deals = mt5.history_deals_get(from_date, datetime.now(), symbol)
+        print(f'\n history deals in update prediction outcome : {history_deals} {"="*10}')
+        
+        if history_deals is None:
+            print(f"No recent trade history found for {symbol}")
+            return
+            
+        print(f"Found {len(history_deals)} recent trades to check")
         
         updated = False
-        if history_deals:
-            for deal in history_deals:
-                # Find matching prediction by MT5 ticket
-                for pred in predictions:
-                    if pred.get('mt5_ticket') == deal.ticket and pred['status'] != 'closed':
-                        # Calculate actual outcome
-                        entry_price = pred['entry_price']
-                        exit_price = deal.price
-                        actual_change = ((exit_price - entry_price) / entry_price) * 100
-                        
-                        pred['actual_outcome'] = {
-                            'exit_time': datetime.fromtimestamp(deal.time).strftime('%Y-%m-%d %H:%M:%S'),
-                            'exit_price': exit_price,
-                            'actual_change': actual_change,
-                            'movement': 'UP' if actual_change > 0 else 'DOWN',
-                            'profit': deal.profit
-                        }
-                        pred['status'] = 'closed'
-                        updated = True
+        for deal in history_deals:
+            # Find matching prediction by MT5 ticket
+            for pred in predictions:
+                if pred.get('mt5_ticket') == deal.ticket and pred['status'] != 'closed':
+                    print(f"Updating outcome for trade ticket {deal.ticket}")
+                    # Calculate actual outcome
+                    entry_price = pred['entry_price']
+                    exit_price = deal.price
+                    actual_change = ((exit_price - entry_price) / entry_price) * 100
+                    
+                    pred['actual_outcome'] = {
+                        'exit_time': datetime.fromtimestamp(deal.time).strftime('%Y-%m-%d %H:%M:%S'),
+                        'exit_price': exit_price,
+                        'actual_change': actual_change,
+                        'movement': 'UP' if actual_change > 0 else 'DOWN',
+                        'profit': deal.profit
+                    }
+                    pred['status'] = 'closed'
+                    updated = True
+                    print(f"Updated prediction outcome: profit={deal.profit}, movement={'UP' if actual_change > 0 else 'DOWN'}")
 
-        
         if updated:
             # Save updated predictions
             with open(filename, 'w') as f:
                 json.dump(predictions, f, indent=4)
+            print(f"Saved updated predictions to {filename}")
             
             # Analyze updated accuracy
             analyze_prediction_accuracy(symbol)
-
-            learning_monitor = LearningMonitor()
-            learning_monitor.track_mistake_patterns(predictions, symbol)
             
     except Exception as e:
-        print(f"Error updating prediction outcomes: {e}")
+        print(f"Error updating prediction outcomes for {symbol}: {e}")
+        print(f"Stack trace: {traceback.format_exc()}")
 
 
 
@@ -174,6 +183,7 @@ def analyze_prediction_accuracy(symbol):
     Analyze prediction accuracy and adjust model parameters if needed
     """
     try:
+        print(f'\n In analyze_prediction_accuracy: {symbol}')
         filename = f'prediction_history/{symbol}_predictions.json'
         if not os.path.exists(filename):
             return
@@ -211,7 +221,7 @@ def analyze_prediction_accuracy(symbol):
         if advanced_metrics:
             performance_metrics.update(advanced_metrics)
         
-        print(f"\nPrediction Analysis for {symbol}:")
+        print(f"\nPrediction Analysis for {symbol} in analyze_prediction_accuracy:\n{'=' * 20}")
         print(f"Total Predictions: {total}")
         print(f"Correct Predictions: {correct_direction}")
         print(f"Accuracy: {accuracy:.2f}%")

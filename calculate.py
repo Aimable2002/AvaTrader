@@ -189,14 +189,16 @@ class Calculate:
                 'spread_points': current_spread
             } 
 
-            print(f"Trade Prediction: {trade_prediction}")
+            #print(f"Trade Prediction: {trade_prediction}")
             save_prediction_results(symbol, trade_prediction)
             update_prediction_outcomes(symbol)
 
-
-
+            # Make trade decision before returning trade details
+            should_trade = self.make_trade_decision(predicted_change, stop_loss, take_profit)
+            
+            # Return trade details with should_trade value
             return {
-                'should_trade': True,
+                'should_trade': should_trade,  # This will be True or False from make_trade_decision
                 'symbol': symbol,
                 'signal': signal,
                 'type': 'sell' if signal == "SELL" else 'buy', 
@@ -206,7 +208,8 @@ class Calculate:
                 'take_profit': take_profit,
                 'predicted_change': predicted_change,
                 'trade_id': trade_id,
-                'spread': current_spread
+                'spread': current_spread,
+                'reason': 'Risk-reward ratio acceptable' if should_trade else 'Risk-reward ratio below threshold'
             }
 
         except Exception as e:
@@ -217,76 +220,23 @@ class Calculate:
             }
         
 
+    def calculate_risk_reward_ratio(self, predicted_change, stop_loss, take_profit):
+        """Calculate risk-reward ratio for a trade."""
+        risk = abs(predicted_change - stop_loss)
+        reward = abs(take_profit - predicted_change)
+        return reward / risk if risk != 0 else 0
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-    def submit_order(self, position_details, deviation=20):
-        """
-        Submit an order to MT5 based on position details
-        Args:
-            position_details: Dictionary containing position information
-            deviation: Maximum price deviation
-        """
-        try:
-            if not position_details['should_trade']:
-                print(f"No trade for {position_details.get('symbol', 'Unknown')}: {position_details.get('reason')}")
-                return
-
-            symbol = position_details['symbol']
-            order_type = mt5.ORDER_TYPE_BUY if position_details['type'] == 'buy' else mt5.ORDER_TYPE_SELL
-            
-            request = {
-                "action": mt5.TRADE_ACTION_DEAL,
-                "symbol": symbol,
-                "volume": position_details['size'],
-                "type": order_type,
-                "price": position_details['entry_price'],
-                "sl": position_details['stop_loss'],
-                "tp": position_details['take_profit'],
-                "deviation": deviation,
-                "magic": 234000,  # Magic number for identifying bot trades
-                "comment": "LSTM prediction trade",
-                "type_time": mt5.ORDER_TIME_GTC,
-                "type_filling": mt5.ORDER_FILLING_IOC,
-            }
-
-            # result = mt5.order_send(request)
-            
-            # if result.retcode != mt5.TRADE_RETCODE_DONE:
-            #     print(f"Order failed: {result.comment}")
-            #     return False
-            # else:
-            #     print(f"\nOrder successful: {symbol} {position_details['type'].upper()}")
-            #     print(f"Size: {position_details['size']}")
-            #     print(f"Entry: {position_details['entry_price']:.5f}")
-            #     print(f"SL: {position_details['stop_loss']:.5f}")
-            #     print(f"TP: {position_details['take_profit']:.5f}")
-            #     print(f"Predicted Change: {position_details['predicted_change']:.2f}%")
-            #     return True
-
-        except Exception as e:
-            print(f"Error submitting order: {str(e)}")
+    def make_trade_decision(self, predicted_change, stop_loss, take_profit, threshold=0.5):
+        """Decide whether to execute a trade based on risk-reward ratio."""
+        risk_reward_ratio = self.calculate_risk_reward_ratio(predicted_change, stop_loss, take_profit)
+        print(f"Risk-Reward Ratio: {risk_reward_ratio}")
+        if risk_reward_ratio >= threshold:
+            print("Trade decision: Execute")
+            return True
+        else:
+            print("Trade decision: Do not execute")
             return False
         
+        
+
 

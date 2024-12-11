@@ -1,4 +1,3 @@
-
 import MetaTrader5 as mt5
 import pandas as pd
 import numpy as np
@@ -14,6 +13,8 @@ import torch
 import traceback
 import time 
 from plNews import get_news_sentiment
+import json
+
 
 
 class TradingBot:
@@ -29,15 +30,31 @@ class TradingBot:
         self.calculator = Calculate() 
         self.model = ForexLSTM()
         self.learning_monitor = LearningMonitor()
+        self.initialize()
 
         # Load saved model if exists
         try:
-            model_path = 'models/forex_lstm.pth'
-            if os.path.exists(model_path):
-                self.model.load_state_dict(torch.load(model_path))
-                print("Loaded saved model successfully")
-            else:
-                print("No saved model found, using new model")
+            for symbol in self.ticker:
+                model_path = f'models/{symbol}_model.pth'
+                metadata_path = f'models/{symbol}_metadata.json'
+                print(f"Checking for model at: {model_path}")
+                with open(metadata_path, 'r') as f:
+                    metadata = json.load(f)
+                # print(f"Loaded metadata for {symbol}: {metadata}")
+
+                model = ForexLSTM(
+                    input_size=metadata['input_size'],
+                    hidden_size=metadata['hidden_size'],
+                    num_layers=metadata['num_layers']
+                )
+                # print(f"Model architecture: {model}")
+
+                if os.path.exists(model_path):
+                    print(f"Model file found for {symbol}, attempting to load...")
+                    self.model.load_state_dict(torch.load(model_path, weights_only=True))
+                    print(f"Loaded saved model for {symbol} successfully")
+                else:
+                    print(f"No saved model found for {symbol}, using new model")
             self.model.eval()  # Set to evaluation mode
         except Exception as e:
             print(f"Error loading model: {e}")
@@ -96,13 +113,13 @@ class TradingBot:
                     df['time'] = pd.to_datetime(df['time'], unit='s')
                     df.name = tk
                     dfs[tk] = df
-                    print(f"Retrieved {len(df)} rows for {tk}")
+                    # print(f"Retrieved {len(df)} rows for {tk}")
 
-                    print(f"Last data point for {tk}: {df.iloc[-1]}")
+                    # print(f"Last data point for {tk}: {df.iloc[-1]}")
 
                     last_rate = rates[-1]
                     last_time = datetime.fromtimestamp(last_rate['time'])
-                    print(f"\nLast rate: {last_rate}, Converted date: {last_time}")
+                    # print(f"\nLast rate: {last_rate}, Converted date: {last_time}")
                 else:
                     print(f'No data found for {tk}')
                     
@@ -113,10 +130,10 @@ class TradingBot:
             combined_df = pd.concat(dfs.values(), keys=dfs.keys(), axis=1)
             
             # Verify data size
-            print(f"\nData Summary:")
-            print(f"Total rows: {len(combined_df)}")
-            print(f"Columns per symbol: {len(combined_df.columns.levels[1])}")
-            print(f"Last data point: {combined_df.iloc[-1]}")
+            # print(f"\nData Summary:")
+            # print(f"Total rows: {len(combined_df)}")
+            # print(f"Columns per symbol: {len(combined_df.columns.levels[1])}")
+            # print(f"Last data point: {combined_df.iloc[-1]}")
             
             return combined_df
             
@@ -133,100 +150,142 @@ class TradingBot:
         Buy signal when price is falling (expecting reversal up)
         Sell signal when price is rising (expecting reversal down)
         """
-        print("\nAnalyzing market conditions...")
-        print(f"\n df in check_probability: {df.iloc[-1]}")
-        predictions = predict_next_prices(df, symbols=self.ticker)
 
-        potential_trades = []
-        
-        for symbol in symbols:
-            try:
-                if symbol not in predictions:
-                    print(f"No predictions available for {symbol}")
-                    continue
-                    
-                pred = predictions[symbol]
-                current_price = pred['current_price']
-                predicted_price = pred['predicted_price']
-                change_percent = pred['change_percent']
-                price_movement = pred['movement'] 
+        try:
+            print("\nAnalyzing market conditions...")
+            # print(f"\n df in check_probability: {df.iloc[-1]}")
+            predictions = predict_next_prices(df, symbols=self.ticker)
 
+            # probability, sentiment = get_news_sentiment()
 
-                # Print detailed analysis
-                print("\nPrediction Results:")
-                print("=" * 50)
-                print(f"\nAnalysis for {symbol}:")
-                print(f"Current Price: {current_price:.5f}")
-                print(f"Predicted Next Price: {predicted_price:.5f}")
-                print(f"Expected Change: {change_percent:.2f}%")
-                print(f"Price Trend: {price_movement}")
-                
-                print("-" * 30)
-
-                
-                # Generate trading signal (contrarian approach)
-                if price_movement == "UP" and abs(change_percent) > 0.1:
-                    signal = "SELL"  # Sell when price is expected to rise
-                    reason = f"Price expected to rise by {change_percent:.2f}%, potential selling opportunity"
-                elif price_movement == "DOWN" and abs(change_percent) > 0.1:
-                    signal = "BUY"   # Buy when price is expected to fall
-                    reason = f"Price expected to fall by {abs(change_percent):.2f}%, potential buying opportunity"
-                else:
-                    signal = "HOLD"
-                    reason = "Price movement too small (less than 0.1%)"
-                
-                print("\nDecision Taken:")
-                print("=" * 50)
-                print(f"Trading Signal: {signal}")
-                print(f"Reason: {reason}")
-                print("-" * 30)
-                
-                # If we have a trading signal, calculate position and submit order
-                if signal in ["BUY", "SELL"]:
-                    pred['signal'] = signal  # Add this line
-                    predictions[symbol] = pred
-                    potential_trades.append({
-                        'symbol': symbol,
-                        'signal': signal,
-                        'change_percent': abs(change_percent),
-                        'current_price': current_price,
-                        'predicted_price': predicted_price,
-                        'price_movement': price_movement
-                    })
-                    
-            except Exception as e:
-                print(f"Error analyzing {symbol}: {str(e)}")
-                continue
-
-        if potential_trades:
-            best_trade = max(potential_trades, key=lambda x: x['change_percent'])
-            print(f"\nSelected Best Trade:")
-            print(f"Symbol: {best_trade['symbol']}")
-            print(f"Signal: {best_trade['signal']}")
-            print(f"Expected Change: {best_trade['change_percent']:.2f}%")
+            potential_trades = []
             
-            # Create prediction info with signal for best trade
-            pred_with_signal = {
-                best_trade['symbol']: {
-                    'current_price': best_trade['current_price'],
-                    'predicted_price': best_trade['predicted_price'],
-                    'change_percent': best_trade['change_percent'],
-                    'movement': best_trade['price_movement'],
-                    'signal': best_trade['signal']
-                }
-            }
-            position_details = self.calculator.calculate_position(
-                symbol=best_trade['symbol'],
-                predictions=pred_with_signal,
-                trading_bot=self 
-            )
+            for symbol in symbols:
+                try:
+                    if symbol not in predictions:
+                        print(f"No predictions available for {symbol}")
+                        continue
+                        
+                    pred = predictions[symbol]
+                    current_price = pred['current_price']
+                    predicted_price = pred['predicted_price']
+                    change_percent = pred['change_percent']
+                    price_movement = pred['movement'] 
+                    
 
-            if position_details['should_trade']:
-                position_details['signal'] = best_trade['signal']
-                self.submit_order(position_details)
-            else:
-                print(f"Trade conditions not met: {position_details.get('reason', 'Unknown reason')}")
+
+                    # Print detailed analysis
+                    print("\nPrediction Results:")
+                    print("=" * 50)
+                    print(f"\nAnalysis for {symbol}:")
+                    print(f"Current Price: {current_price:.5f}")
+                    print(f"Predicted Next Price: {predicted_price:.5f}")
+                    print(f"Expected Change: {change_percent:.2f}%")
+                    print(f"Price Trend: {price_movement}")
+
+                    print("-" * 30)
+
+                    signal = "HOLD"
+                    reason = "Default reason"
+
+                    
+                    # Generate trading signal (contrarian approach) and sentiment == "positive" or sentiment == "neutral"  and sentiment == "negative" or sentiment == "neutral"
+                    # if probability > 0.7:
+                    if price_movement == "UP" and change_percent > 0.1 :
+                        signal = "BUY"  # BUY when price is expected to rise
+                        reason = f"Price expected to rise by {change_percent:.2f}%, potential selling opportunity"
+                    elif price_movement == "DOWN" and change_percent < -0.1:
+                        signal = "SELL"   # SELL when price is expected to fall
+                        reason = f"Price expected to fall by {change_percent:.2f}%, potential buying opportunity"
+                    else:
+                        signal = "HOLD"
+                        reason = "Probability too small (less than 0.7)"
+                        
+                    print("\nDecision Taken:")
+                    print("=" * 50)
+                    print(f"Trading Signal: {signal}")
+                    print(f"Reason: {reason}")
+                    print("-" * 30)
+                    
+                    # If we have a trading signal, calculate position and submit order
+                    if signal in ["BUY", "SELL"]:
+                        pred['signal'] = signal  # Add this line
+                        predictions[symbol] = pred
+                        potential_trades.append({
+                            'symbol': symbol,
+                            'signal': signal,
+                            'change_percent': change_percent,
+                            'current_price': current_price,
+                            'predicted_price': predicted_price,
+                            'price_movement': price_movement
+                        })
+                        
+                except Exception as e:
+                    print(f"Error analyzing {symbol}: {str(e)}")
+                    continue
+
+            if potential_trades:
+                min_change = 0.1  # Minimum 0.1% change required
+                buy_trades = [trade for trade in potential_trades 
+                            if trade['signal'] == "BUY" and trade['change_percent'] >= min_change]
+                sell_trades = [trade for trade in potential_trades 
+                            if trade['signal'] == "SELL" and trade['change_percent'] <= -min_change]
                 
+                # Find best buy and sell opportunities (keep original sign)
+                best_buy = max(buy_trades, key=lambda x: x['change_percent']) if buy_trades else None  # Most negative change for BUY
+                best_sell = min(sell_trades, key=lambda x: x['change_percent']) if sell_trades else None  # Most positive change for SELL
+                
+                print("\nBest Trade Analysis:")
+                if best_buy:
+                    print(f"Best BUY: {best_buy['symbol']} (Change: {best_buy['change_percent']:.2f}%)")  # Will show negative
+                if best_sell:
+                    print(f"Best SELL: {best_sell['symbol']} (Change: {best_sell['change_percent']:.2f}%)")  # Will show positive
+                
+                # Select both best buy and best sell trades
+                selected_trades = []
+                # Select both best buy and best sell trades
+                selected_trades = []
+                if best_buy:
+                    selected_trades.append(best_buy)
+                    print(f"Selected Best BUY: {best_buy['symbol']} (Change: {best_buy['change_percent']:.2f}%) selected_trades: {selected_trades}")
+                if best_sell:
+                    selected_trades.append(best_sell)
+                    print(f"Selected Best SELL: {best_sell['symbol']} (Change: {best_sell['change_percent']:.2f}%) selected_trades: {selected_trades}")
+                
+                for best_trade in selected_trades:
+                    print(f"\nSelected Best Trade:")
+                    print(f"Symbol: {best_trade['symbol']}")
+                    print(f"Signal: {best_trade['signal']}")
+                    print(f"Expected Change: {best_trade['change_percent']:.2f}%")
+                    
+                    # Create prediction info with signal for best trade
+                    pred_with_signal = {
+                        best_trade['symbol']: {
+                            'current_price': best_trade['current_price'],
+                            'predicted_price': best_trade['predicted_price'],
+                            'change_percent': best_trade['change_percent'],
+                            'movement': best_trade['price_movement'],
+                            'signal': best_trade['signal']
+                        }
+                    }
+                    position_details = self.calculator.calculate_position(
+                        symbol=best_trade['symbol'],
+                        predictions=pred_with_signal,
+                        trading_bot=self 
+                    )
+
+                    if position_details['should_trade']:
+                        position_details['signal'] = best_trade['signal']
+                        self.submit_order(position_details)
+                        time.sleep(1)
+                    else:
+                        print(f"\n Trade conditions not met: {position_details}")
+                        print(f"Trade conditions not met: {position_details.get('reason', 'Unknown reason')} with should trade: {position_details.get('should_trade')}")
+                
+
+        except Exception as e:
+            print(f"Error in check_probability: {e}")
+            traceback.print_exc()
 
     def submit_order(self, position_details):
         """
@@ -253,10 +312,10 @@ class TradingBot:
                 return False  
             server_time = datetime.fromtimestamp(mt5_time, timezone.utc)
             print(f"Server Time above: {server_time}")
-            expiration = server_time + timedelta(minutes=120)
+            expiration = server_time + timedelta(minutes=1440)
             print(f"Expiration Time above: {expiration}")
 
-            request1 = {
+            request = {
                 "action": mt5.TRADE_ACTION_DEAL,
                 "symbol": symbol,
                 "volume": position_details['size'],
@@ -282,95 +341,95 @@ class TradingBot:
             tp_distance = 1000 * point  
             digits = mt5.symbol_info(symbol).digits
 
-            if signal_stop == "BUY":
-                print(f"\n==== BUY STOP ====")
-                # entry_price = mt5.symbol_info_tick(symbol).ask + min_distance
-                # take_profit = entry_price + (30 * point)  
-                # stop_loss = entry_price - (10 * point) 
-                entry_price = round(mt5.symbol_info_tick(symbol).ask + entry_distance, digits)  
-                stop_loss = round(entry_price - sl_distance, digits)           # 50 pips above entry
-                take_profit = round(entry_price + tp_distance, digits)  
-            elif signal_stop == "SELL":
-                print(f"\n==== SELL STOP ====")
-                # entry_price = mt5.symbol_info_tick(symbol).bid - min_distance
-                # take_profit = entry_price - (30 * point)  
-                # stop_loss = entry_price + (10 * point) 
-                entry_price = round(mt5.symbol_info_tick(symbol).bid - entry_distance, digits) 
-                stop_loss = round(entry_price + sl_distance, digits)           # 50 pips below entry
-                take_profit = round(entry_price - tp_distance, digits) 
+            # if signal_stop == "BUY":
+            #     print(f"\n==== BUY STOP ====")
+            #     # entry_price = mt5.symbol_info_tick(symbol).ask + min_distance
+            #     # take_profit = entry_price + (30 * point)  
+            #     # stop_loss = entry_price - (10 * point) 
+            #     entry_price = round(mt5.symbol_info_tick(symbol).ask + entry_distance, digits)  
+            #     stop_loss = round(entry_price - sl_distance, digits)           # 50 pips above entry
+            #     take_profit = round(entry_price + tp_distance, digits)  
+            # elif signal_stop == "SELL":
+            #     print(f"\n==== SELL STOP ====")
+            #     # entry_price = mt5.symbol_info_tick(symbol).bid - min_distance
+            #     # take_profit = entry_price - (30 * point)  
+            #     # stop_loss = entry_price + (10 * point) 
+            #     entry_price = round(mt5.symbol_info_tick(symbol).bid - entry_distance, digits) 
+            #     stop_loss = round(entry_price + sl_distance, digits)           # 50 pips below entry
+            #     take_profit = round(entry_price - tp_distance, digits) 
 
-            request2 = {
-                "action": mt5.TRADE_ACTION_PENDING,
-                "symbol": symbol,
-                "volume": position_details['size'],
-                "type": mt5.ORDER_TYPE_BUY_STOP if signal_stop == "BUY" else mt5.ORDER_TYPE_SELL_STOP,
-                "price": entry_price, 
-                "sl": stop_loss,
-                "tp": take_profit,
-                "deviation": self.deviation,
-                "magic": 234000,
-                "comment": f"LSTM {signal_stop}",
-                "type_time": mt5.ORDER_TIME_SPECIFIED,
-                "type_filling": mt5.ORDER_FILLING_FOK,
-                "expiration": int(expiration.timestamp())
-            }
+            # request2 = {
+            #     "action": mt5.TRADE_ACTION_PENDING,
+            #     "symbol": symbol,
+            #     "volume": position_details['size'],
+            #     "type": mt5.ORDER_TYPE_BUY_STOP if signal_stop == "BUY" else mt5.ORDER_TYPE_SELL_STOP,
+            #     "price": entry_price, 
+            #     "sl": stop_loss,
+            #     "tp": take_profit,
+            #     "deviation": self.deviation,
+            #     "magic": 234000,
+            #     "comment": f"LSTM {signal_stop}",
+            #     "type_time": mt5.ORDER_TIME_SPECIFIED,
+            #     "type_filling": mt5.ORDER_FILLING_FOK,
+            #     "expiration": int(expiration.timestamp())
+            # }
 
 
-            symbol_info = mt5.symbol_info(symbol)
-            current_tick = mt5.symbol_info_tick(symbol)
-            point = symbol_info.point
-            digits = symbol_info.digits
-            stops_level = symbol_info.trade_stops_level
+            # symbol_info = mt5.symbol_info(symbol)
+            # current_tick = mt5.symbol_info_tick(symbol)
+            # point = symbol_info.point
+            # digits = symbol_info.digits
+            # stops_level = symbol_info.trade_stops_level
             
-            print(f"\nSymbol Info:")
-            print(f"Point: {point}")
-            print(f"Digits: {digits}")
-            print(f"Stops Level: {stops_level}")
-            print(f"Current Ask: {current_tick.ask}")
-            print(f"Current Bid: {current_tick.bid}")
+            # print(f"\nSymbol Info:")
+            # print(f"Point: {point}")
+            # print(f"Digits: {digits}")
+            # print(f"Stops Level: {stops_level}")
+            # print(f"Current Ask: {current_tick.ask}")
+            # print(f"Current Bid: {current_tick.bid}")
 
             
-            min_distance = (stops_level + 10) * point
+            # min_distance = (stops_level + 10) * point
 
-            entry_distance = 1000 * point
-            sl_distance = 500 * point      # 50 pips from entry
-            tp_distance = 1000 * point  
+            # entry_distance = 1000 * point
+            # sl_distance = 500 * point      # 50 pips from entry
+            # tp_distance = 1000 * point  
 
-            if signal_limit == "BUY":
-                # For SELL signal (BUY_LIMIT)
-                print(f"\n==== BUY Limit ====")
-                entry_price = round(current_tick.ask - entry_distance, digits)  
-                stop_loss = round(entry_price - sl_distance, digits)           # 50 pips above entry
-                take_profit = round(entry_price + tp_distance, digits)         # 100 pips below entry
-                order_type = mt5.ORDER_TYPE_BUY_LIMIT
-            elif signal_limit == "SELL":
-                # For BUY signal (SELL_LIMIT)
-                print(f"\n==== SELL Limit ====")
-                entry_price = round(current_tick.bid + entry_distance, digits) 
-                stop_loss = round(entry_price + sl_distance, digits)           # 50 pips below entry
-                take_profit = round(entry_price - tp_distance, digits)         # 100 pips above entry
-                order_type = mt5.ORDER_TYPE_SELL_LIMIT
+            # if signal_limit == "BUY":
+            #     # For SELL signal (BUY_LIMIT)
+            #     print(f"\n==== BUY Limit ====")
+            #     entry_price = round(current_tick.ask - entry_distance, digits)  
+            #     stop_loss = round(entry_price - sl_distance, digits)           # 50 pips above entry
+            #     take_profit = round(entry_price + tp_distance, digits)         # 100 pips below entry
+            #     order_type = mt5.ORDER_TYPE_BUY_LIMIT
+            # elif signal_limit == "SELL":
+            #     # For BUY signal (SELL_LIMIT)
+            #     print(f"\n==== SELL Limit ====")
+            #     entry_price = round(current_tick.bid + entry_distance, digits) 
+            #     stop_loss = round(entry_price + sl_distance, digits)           # 50 pips below entry
+            #     take_profit = round(entry_price - tp_distance, digits)         # 100 pips above entry
+            #     order_type = mt5.ORDER_TYPE_SELL_LIMIT
 
-            mt5_time = mt5.symbol_info_tick(symbol).time
-            server_time = datetime.fromtimestamp(mt5_time, timezone.utc)
-            expiration = server_time + timedelta(minutes=120)
+            # mt5_time = mt5.symbol_info_tick(symbol).time
+            # server_time = datetime.fromtimestamp(mt5_time, timezone.utc)
+            # expiration = server_time + timedelta(minutes=120)
 
 
-            request = {
-                "action": mt5.TRADE_ACTION_PENDING,
-                "symbol": symbol,
-                "volume": position_details['size'],
-                "type": order_type,
-                "price": entry_price,
-                "sl": stop_loss,
-                "tp": take_profit,
-                "deviation": self.deviation,
-                "magic": 234000,
-                "comment": f"LSTM {signal_limit}",
-                "type_time": mt5.ORDER_TIME_SPECIFIED,
-                "type_filling": mt5.ORDER_FILLING_FOK,
-                "expiration": int(expiration.timestamp())
-            }
+            # request = {
+            #     "action": mt5.TRADE_ACTION_PENDING,
+            #     "symbol": symbol,
+            #     "volume": position_details['size'],
+            #     "type": order_type,
+            #     "price": entry_price,
+            #     "sl": stop_loss,
+            #     "tp": take_profit,
+            #     "deviation": self.deviation,
+            #     "magic": 234000,
+            #     "comment": f"LSTM {signal_limit}",
+            #     "type_time": mt5.ORDER_TIME_SPECIFIED,
+            #     "type_filling": mt5.ORDER_FILLING_FOK,
+            #     "expiration": int(expiration.timestamp())
+            # }
 
 
             print(f"Debug - Order request details:")
@@ -383,17 +442,19 @@ class TradingBot:
                 else:
                     print(f"{key}: {value}")
 
-            probability, sentiment = get_news_sentiment()
+            # probability, sentiment = get_news_sentiment()
 
-            print(f"News Sentiment: {sentiment}")
-            print(f"News Sentiment Confidence: {probability:.2%}")
+            # print(f"News Sentiment: {sentiment}")
+            # print(f"News Sentiment Confidence: {probability:.2%}")
 
-            if probability > 0.998 and sentiment == "positive": # sell
-                result = mt5.order_send(request2)
-            elif probability < 0.998 and sentiment == "negative": # buy
-                result = mt5.order_send(request1)
-            else:
-                result = mt5.order_send(request2)
+            result = mt5.order_send(request)
+
+            # if probability > 0.998 and sentiment == "positive": # sell
+            #     result = mt5.order_send(request2)
+            # elif probability < 0.998 and sentiment == "negative": # buy
+            #     result = mt5.order_send(request1)
+            # else:
+            #     result = mt5.order_send(request)
 
             if result is None:
                 error = mt5.last_error()
@@ -401,6 +462,8 @@ class TradingBot:
                 print(f"MT5 error code: {error[0]}")
                 print(f"MT5 error message: {error[1]}")
                 return False
+
+            time.sleep(2)
                 
             if result.retcode != mt5.TRADE_RETCODE_DONE:
                 print(f"\nOrder failed with retcode: {result.retcode}")
@@ -415,19 +478,25 @@ class TradingBot:
                 print(f"Error Description: {result.comment}")
                 return False
             else:
+                time.sleep(2)
+                mt5_ticket = result.order  # Use 'order' instead of 'ticket'
+                print(f"Order placed successfully with ticket: {mt5_ticket}")
+
                 # Update prediction record with MT5 ticket
                 trade_prediction = {
                     'trade_id': trade_id,
                     'symbol': symbol,
-                    'mt5_ticket': result.order,
+                    'mt5_ticket': mt5_ticket,
                     'entry_time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
                     'entry_price': position_details['entry_price'],
                     'predicted_direction': signal,
                     'predicted_change': position_details['predicted_change'],
+                    # 'predicted_price': position_details['predicted_price'],
                     'stop_loss': position_details['stop_loss'],
                     'take_profit': position_details['take_profit'],
                     'position_size': position_details['size'],
-                    'status': 'open'
+                    'status': 'open',
+                    # 'movement': position_details.get('movement', 'UNKNOWN') 
                 }
 
                 print(f"Trade Prediction: {trade_prediction}")
@@ -451,59 +520,6 @@ class TradingBot:
             traceback.print_exc()
             return False
         
-
-    # def monitor_trades(self):
-    #     """Monitor trades and close them if they reach a profit of 20.10"""
-    #     try:
-    #         positions = mt5.positions_get()
-            
-    #         if positions is None:
-    #             return
-                
-    #         for position in positions:
-    #             if position.magic == 234000:  # Check if it's our bot's trade
-    #                 # Calculate the current profit
-    #                 current_profit = position.profit
-                    
-    #                 print(f"\nPosition {position.ticket} profit check:")
-    #                 print(f"Current Profit: {current_profit}")
-                    
-    #                 # Check if the profit is greater than or equal to 20.10
-    #                 if current_profit >= 10.10:
-    #                     print(f"Closing position {position.ticket} - profit target reached")
-                        
-    #                     # Prepare close request
-    #                     close_request = {
-    #                         "action": mt5.TRADE_ACTION_DEAL,
-    #                         "position": position.ticket,
-    #                         "symbol": position.symbol,
-    #                         "volume": position.volume,
-    #                         "type": mt5.ORDER_TYPE_BUY if position.type == mt5.ORDER_TYPE_SELL else mt5.ORDER_TYPE_SELL,
-    #                         "price": mt5.symbol_info_tick(position.symbol).ask if position.type == mt5.ORDER_TYPE_SELL else mt5.symbol_info_tick(position.symbol).bid,
-    #                         "deviation": 20,
-    #                         "magic": 234000,
-    #                         "comment": "Profit target reached",
-    #                         "type_time": mt5.ORDER_TIME_GTC,
-    #                         "type_filling": mt5.ORDER_FILLING_IOC,
-    #                     }
-                        
-    #                     # Send close request
-    #                     result = mt5.order_send(close_request)
-                        
-    #                     if result.retcode != mt5.TRADE_RETCODE_DONE:
-    #                         print(f"Error closing position: {result.comment}")
-    #                     else:
-    #                         print(f"Position {position.ticket} closed successfully")
-                            
-    #                         # Optionally, send a new order after closing
-    #                         # self.submit_order(self.calculate_position(position.symbol, self.predictions))
-                            
-    #     except Exception as e:
-    #         print(f"Error in monitor_trades: {e}")
-    #         traceback.print_exc()
-
-
-
 
     def run(self):
         """Main execution method"""

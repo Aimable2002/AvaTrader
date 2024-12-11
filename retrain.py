@@ -8,6 +8,7 @@ from model import ForexLSTM
 from learningMonitor import LearningMonitor
 from utilis import update_prediction_outcomes
 import traceback
+import proba
 
 class RetrainBot:
     def __init__(self):
@@ -17,6 +18,7 @@ class RetrainBot:
         self.retrain_interval = timedelta(hours=24)  # Retrain daily
         self.min_accuracy_threshold = 55  # 55% minimum accuracy
         self.min_profit_threshold = 0  # Minimum profit threshold
+        self.ticker = proba.ticker
 
     def prepare_training_data(self, training_data):
         """Convert historical trades to training data"""
@@ -135,7 +137,7 @@ class RetrainBot:
                 print(f"Epoch {epoch+1}/{n_epochs}, Average Loss: {avg_loss:.4f}")
                 
             # 5. Save updated model
-            model_path = 'models/forex_lstm.pth'
+            model_path = f'models/{symbol}_model.pth'
             torch.save(self.model.state_dict(), model_path)
             print(f"Model saved to {model_path}")
             

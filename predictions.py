@@ -10,6 +10,7 @@ import MetaTrader5 as mt5
 from utilis import save_prediction_results, update_prediction_outcomes
 from model import ForexLSTM
 from update import load_model
+from plNews import estimate_sentiment
 # Dataset class to handle data in PyTorch format
 class ForexDataset(Dataset):
     def __init__(self, X, y):
@@ -41,6 +42,8 @@ def calculate_rsi(prices, periods=10):
     rs = gain / loss
     return 100 - (100 / (1 + rs))
 
+
+
 def calculate_atr(high, low, close, window=10):
     """
     Calculate Average True Range (ATR)
@@ -63,9 +66,11 @@ def prepare_forex_data(df, symbol, sequence_length=10):
         df: DataFrame with forex data
         symbol: Currency pair symbol
         sequence_length: Number of time steps to use for prediction
+        sentiment_value: Sentiment value (1 for positive, -1 for negative, 0 for neutral)
+        sentiment_probability: Sentiment probability (0 to 1)
     """
     # Select base features
-    features = ['open', 'high', 'low', 'close', 'tick_volume']
+    features = ['open', 'high', 'low', 'close', 'tick_volume', 'spread', 'real_volume']
     data = df[symbol][features].copy()
     
     # Add technical indicators
@@ -79,6 +84,10 @@ def prepare_forex_data(df, symbol, sequence_length=10):
     data['Price_Change_5'] = data['close'].pct_change(periods=5)  # 5-period price change
     data['Price_Change_10'] = data['close'].pct_change(periods=10)  # 10-period price change
     
+    # if sentiment_value is not None and sentiment_probability > 0.7:
+    #     data['Sentiment_Value'] = sentiment_value
+    #     data['Sentiment_Probability'] = sentiment_probability
+
     # Remove NaN values
     data = data.dropna()
     
@@ -96,12 +105,14 @@ def prepare_forex_data(df, symbol, sequence_length=10):
         X.append(scaled_data[i:(i + sequence_length)])  # Input sequence
         y.append(scaled_data[i + sequence_length, 3])   # Target (next close price)
     
+    print(f"Input data shape: {(np.array(X)).shape}")
+
     return np.array(X), np.array(y), scaler
 
 
-# ... (after the train_model function)
-ticker = ["EURUSD", "EURGBP", "EURCAD","GBPJPY", "EURJPY", "EURAUD", "EURCHF", "AUDUSD", "GBPUSD", "USDCHF", "USDJPY"]
-def predict_next_prices(df, symbols=ticker):
+# ... (after the train_model function) =ticker
+#ticker = ["EURUSD", "EURGBP", "EURCAD","GBPJPY", "EURJPY", "EURAUD", "EURCHF", "AUDUSD", "GBPUSD", "USDCHF", "USDJPY"]
+def predict_next_prices(df, symbols):
     """
     Make predictions for multiple forex symbols
     Args:
@@ -111,7 +122,7 @@ def predict_next_prices(df, symbols=ticker):
         dict: Predictions for each symbol
     """
     predictions = {}
-    print(f"\n df in predict_next_prices: {df.iloc[-1]}")
+    # print(f"\n df in predict_next_prices: {df.iloc[-1]}")
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
     for symbol in symbols:
@@ -127,27 +138,38 @@ def predict_next_prices(df, symbols=ticker):
             
             # Load and combine with historical training data
             historical_data = load_and_combine_training_data(symbol)
-            print(f"\n df in predict_next_prices historical data: {historical_data.iloc[-1]}")
+            # print(f"\n df in predict_next_prices historical data: {historical_data.iloc[-1]}")
             if historical_data is not None:
                 # df[symbol] = pd.concat([historical_data, df[symbol]]).drop_duplicates()
                 # print(f"Combined with historical training data for {symbol}")
 
                 # Ensure both DataFrames have the same columns
-                print(f"\n df in predict_next_prices current data: {current_data.iloc[-1]}")
+                # print(f"\n df in predict_next_prices current data: {current_data.iloc[-1]}")
                 combined_data = pd.concat([historical_data, current_data], axis=0)
                 # combined_data = combined_data.drop_duplicates().reset_index(drop=True)
                 combined_data = combined_data.drop_duplicates(subset=['time'], keep='last').reset_index(drop=True)
                 combined_data = combined_data.astype(df[symbol].dtypes.to_dict())
                 # print(f"Combined data for {symbol}: {combined_data.iloc[-1]}") 
-                print(f"Combined data for {symbol} (last 5 rows):\n{combined_data.tail()}")
-                print(f'\n df symbol: {df[symbol].iloc[-1]}')
+                # print(f"Combined data for {symbol} (last 5 rows):\n{combined_data.tail()}")
+                # print(f'\n df symbol: {df[symbol].iloc[-1]}')
                 # df[symbol] = combined_data
                 # df.loc[:, symbol] = combined_data
                 # print(f"\n df in predict_next_prices combined data: {df[symbol].iloc[-1]}")
-                print(f"Updated df for {symbol} (last 5 rows):\n{df[symbol].tail()}")
-                print(f"Combined with historical training data for {symbol}")
+                # print(f"Updated df for {symbol} (last 5 rows):\n{df[symbol].tail()}")
+                # print(f"Combined with historical training data for {symbol}")
                 
             # Prepare data with 10-day sequences
+            # probability, sentiment = estimate_sentiment(symbol)
+            # print(f"\n In prediction Price Sentiment for {symbol}: {sentiment}")
+            # print(f"\n In prediction Price Confidence: {probability:.2%}")
+            # sentiment_value = 0
+            # sentiment_probability = 0
+
+            # # Only consider sentiment if probability is greater than 0.7
+            # if probability > 0.7:
+            #     sentiment_value = 1 if sentiment == "positive" else -1 if sentiment == "negative" else 0
+            #     sentiment_probability = probability         sentiment_value=sentiment_value, sentiment_probability=sentiment_probability
+
             X, y, scaler = prepare_forex_data(df, symbol, sequence_length=10)
             
             if len(X) < 20:  # Minimum data check
@@ -192,7 +214,7 @@ def predict_next_prices(df, symbols=ticker):
                 predicted_price = scaler.inverse_transform(dummy)[0, 3]
                 
                 current_price = df[symbol]['close'].iloc[-1]
-                print(f"\n Print the last df row: {df[symbol].iloc[-1]}")
+                # print(f"\n Print the last df row: {df[symbol].iloc[-1]}")
                 predictions[symbol] = {
                     'current_price': current_price,
                     'predicted_price': predicted_price,
@@ -206,10 +228,10 @@ def predict_next_prices(df, symbols=ticker):
                 print(f"Predicted movement: {predictions[symbol]['movement']}")
                 print(f"Predicted change: {predictions[symbol]['change_percent']:.2f}%")
 
-            save_prediction_results(symbol, predictions[symbol])
-            
-            # Update outcomes for previous predictions
-            update_prediction_outcomes(symbol)
+                # Update outcomes for previous predictions
+                update_prediction_outcomes(symbol)
+
+            # make_trade_decision(predicted_price, stop_loss, take_profit, threshold=1.5)
 
         except Exception as e:
             print(f"Error predicting {symbol}: {str(e)}")
@@ -367,6 +389,13 @@ def train_model(model, train_loader, val_loader, symbol, epochs=100, learning_ra
 
                 val_predictions.extend(outputs.cpu().numpy())
                 val_targets.extend(batch_y.cpu().numpy())
+
+            
+            # Add model evaluation here
+            directional_accuracy, sharpe_ratio = evaluate_model(val_predictions, val_targets)
+            print(f"\nEpoch {epoch+1} Evaluation Metrics:")
+            print(f"Directional Accuracy: {directional_accuracy:.2f}")
+            print(f"Sharpe Ratio: {sharpe_ratio:.2f}")
         
         # Calculate average losses
         avg_train_loss = total_train_loss / len(train_loader)
@@ -528,6 +557,24 @@ def retrain_model_with_feedback(symbol, model, recent_predictions, sequence_leng
         return model
 
 
+
+
+
+def evaluate_model(predictions, actuals):
+    """Evaluate model using trading-specific metrics."""
+    # Directional accuracy
+    correct_direction = sum((pred > 0) == (act > 0) for pred, act in zip(predictions, actuals))
+    directional_accuracy = correct_direction / len(predictions)
+    
+    # Calculate Sharpe ratio
+    returns = [act - pred for pred, act in zip(predictions, actuals)]
+    mean_return = np.mean(returns)
+    std_return = np.std(returns)
+    sharpe_ratio = mean_return / std_return if std_return != 0 else 0
+    
+    print(f"Directional Accuracy: {directional_accuracy:.2f}")
+    print(f"Sharpe Ratio: {sharpe_ratio:.2f}")
+    return directional_accuracy, sharpe_ratio
 
 
 # def track_mistake_patterns(predictions):

@@ -3,7 +3,7 @@ import torch.nn as nn
 
 
 class ForexLSTM(nn.Module):
-    def __init__(self, input_size=5, hidden_size=128, num_layers=2):
+    def __init__(self, input_size=14, hidden_size=128, num_layers=2):
         super().__init__()
         # LSTM layer
         self.lstm = nn.LSTM(

@@ -4,5 +4,9 @@ mistake_patterns/
 prediction_history/
 training_data/
 myenv/
+models/
+profit_data/
+
+
 
 

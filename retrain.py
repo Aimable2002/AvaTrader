@@ -10,6 +10,7 @@ from utilis import update_prediction_outcomes
 import traceback
 import proba
 
+
 class RetrainBot:
     def __init__(self):
         self.model = ForexLSTM()
@@ -151,6 +152,8 @@ class RetrainBot:
                 'final_loss': avg_loss,
                 'epochs': n_epochs
             })
+
+            self.learning_monitor.plot_learning_progress()
             
             print("Model retraining completed successfully")
             

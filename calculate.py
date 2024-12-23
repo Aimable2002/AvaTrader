@@ -104,12 +104,12 @@ class Calculate:
             if signal == "BUY":
                 entry_price = mt5.symbol_info_tick(symbol).bid
                 print(f'bid: {entry_price}')
-                stop_loss = entry_price * 0.997  # 0.3% stop loss 0.997 
+                stop_loss = entry_price * 0.998  # 0.3% stop loss 0.997 
                 take_profit = entry_price * 1.006  # 0.6% take profit 1.006
             else:  # SELL
                 entry_price = mt5.symbol_info_tick(symbol).ask
                 print(f'ask: {entry_price}')
-                stop_loss = entry_price * 1.003  # 0.3% stop loss 1.003
+                stop_loss = entry_price * 1.002  # 0.3% stop loss 1.003
                 take_profit = entry_price * 0.994 # 0.6% take profit 0.994 
 
             # min_stops_level = symbol_info.trade_stops_level
@@ -135,7 +135,7 @@ class Calculate:
 
             
             account_balance = account_info.balance
-            risk_amount = float(account_balance * 0.005)
+            risk_amount = float(account_balance * 0.1)
 
             min_lot = symbol_info.volume_min
             lot_step = symbol_info.volume_step

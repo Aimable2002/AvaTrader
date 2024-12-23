@@ -9,7 +9,9 @@ server = os.getenv('MT5_SERVER')
 path = os.getenv('MT5_PATH')
 
 # Trading parameters
-ticker = ["EURJPY", "EURGBP", "AUDUSD", "USDCHF","GBPJPY"]  
+ticker = ["AUDCHF", "AUDCAD", "CADJPY", "USDCHF", "AUDJPY", "GBPCHF"]  # "BTCUSD", "ETHUSD",
+# ticker = ["AUDJPY", "USDJPY", "AUDUSD", "EURNOK", "CADJPY"]  
+# ticker = ["EURJPY", "EURGBP", "AUDUSD", "GBPJPY", "CADJPY"]  
 # ticker = ["EURUSD", "EURGBP", "EURCAD","GBPJPY", "EURJPY", "EURAUD", "EURCHF", "AUDUSD", "GBPUSD", "USDCHF", "USDJPY"]
 interval = mt5.TIMEFRAME_M5
 from_date = datetime.now() 

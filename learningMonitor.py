@@ -4,10 +4,12 @@ import os
 from pathlib import Path
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
 
 class LearningMonitor:
     def __init__(self):
         """Initialize the learning monitor"""
+        self.sessions = []
         try:
             # Create necessary directories if they don't exist
             Path("learning_history").mkdir(exist_ok=True)
@@ -15,6 +17,33 @@ class LearningMonitor:
             print("Learning monitor initialized. Created required directories.")
         except Exception as e:
             print(f"Error initializing learning monitor: {e}")
+
+
+    def save_learning_history(self, filename='learning_history.json'):
+        """Save the learning history to a JSON file."""
+        try:
+            with open(filename, 'w') as f:
+                json.dump(self.sessions, f, indent=4)
+            print(f"Learning history saved to {filename}")
+        except Exception as e:
+            print(f"Error saving learning history: {e}")
+
+    def load_learning_history(self, filename='learning_history.json'):
+        """Load the learning history from a JSON file."""
+        if os.path.exists(filename):
+            with open(filename, 'r') as f:
+                self.sessions = json.load(f)
+            print(f"Learning history loaded from {filename}")
+        else:
+            print(f"No learning history file found at {filename}.")
+
+
+
+    def record_training_session(self, session_data):
+        """Record the details of a training session."""
+        self.sessions.append(session_data)
+        print(f"Recorded training session: {session_data}")
+
 
     def track_mistake_patterns(self, predictions, symbol):
         """
@@ -188,4 +217,37 @@ class LearningMonitor:
             return ["Error generating recommendations"]
 
 
+    def plot_learning_progress(self):
+        """Plot the learning progress based on recorded sessions."""
+        if not self.sessions:
+            print("No training sessions recorded.")
+            return
+
+        epochs = [session['epochs'] for session in self.sessions]
+        losses = [session['final_loss'] for session in self.sessions]
+        samples_trained = [session['samples_trained'] for session in self.sessions]
+
+        plt.figure(figsize=(12, 5))
+
+        # Plot loss
+        plt.subplot(1, 2, 1)
+        plt.plot(epochs, losses, marker='o', label='Final Loss', color='blue')
+        plt.title('Training Loss Over Sessions')
+        plt.xlabel('Session Number')
+        plt.ylabel('Loss')
+        plt.xticks(epochs)
+        plt.legend()
+
+
+        # Plot samples trained
+        plt.subplot(1, 2, 2)
+        plt.plot(epochs, samples_trained, marker='o', label='Samples Trained', color='green')
+        plt.title('Samples Trained Over Sessions')
+        plt.xlabel('Session Number')
+        plt.ylabel('Number of Samples')
+        plt.xticks(epochs)
+        plt.legend()
+
+        plt.tight_layout()
+        plt.show()
 

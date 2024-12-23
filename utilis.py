@@ -115,10 +115,11 @@ def save_prediction_results(symbol, prediction_data):
 
 
 
+
 def update_prediction_outcomes(symbol):
     """Update outcomes for completed trades"""
     try:
-        print(f"\nUpdating prediction outcomes for {symbol}")
+        print(f"\nUpdating prediction outcomes for {symbol} {'='*40}")
 
         filename = f'prediction_history/{symbol}_predictions.json'
         if not os.path.exists(filename):
@@ -127,11 +128,12 @@ def update_prediction_outcomes(symbol):
             
         with open(filename, 'r') as f:
             predictions = json.load(f)
+            # print(f'\n {'='*50} predictioon history in utility update_prediction_outcomes : \n {predictions} \n {'='*50}')
             
         # Get recent trade history
         from_date = datetime.now() - timedelta(days=2)
-        history_deals = mt5.history_deals_get(from_date, datetime.now(), symbol)
-        print(f'\n history deals in update prediction outcome : {history_deals} {"="*10}')
+        history_deals = mt5.history_deals_get(from_date, datetime.now(), group=symbol)
+        # print(f'\n {'='*40} \n  history deals in update prediction outcome : \n {history_deals} \n {"="*10}')
         
         if history_deals is None:
             print(f"No recent trade history found for {symbol}")
@@ -159,7 +161,7 @@ def update_prediction_outcomes(symbol):
                     }
                     pred['status'] = 'closed'
                     updated = True
-                    print(f"Updated prediction outcome: profit={deal.profit}, movement={'UP' if actual_change > 0 else 'DOWN'}")
+                    print(f"\n {'='*100} \n Updated prediction outcome: \n profit={deal.profit}, \n movement={'UP' if actual_change > 0 else 'DOWN'}")
 
         if updated:
             # Save updated predictions
